@@ -1,5 +1,5 @@
-name: "Create GitHub self hosted runner"
-description: "Create a GitHub self hosted runner on Azure"
+name: "Run terraform pre apply"
+description: "Run terraform pre apply on Azure"
 
 inputs:
   client_id:
@@ -11,69 +11,36 @@ inputs:
   subscription_id:
     description: "Azure subscription Id"
     required: true
-  container_app_environment_name:
-    description: "Azure container app environment name"
+  dir:
+    description: "terraform directory"
     required: true
-  resource_group_name:
-    description: "Azure container app environment resource group name"
+  azure_environment:
+    description: "Azure Environment"
     required: true
-  pat_token:
-    description: "GitHub PAT token to access to APIs to manage self hosted runner"
-    required: true
-  self_hosted_runner_image_tag:
-    description: "Self hosted runner image tag from https://github.com/pagopa/github-self-hosted-runner-azure/pkgs/container/github-self-hosted-runner-azure"
-    required: true
-    default: "v1.0.3@sha256:dde85b07a1de09d283b85c2d35bc3c399d4e5c8a1f60ac882353f62549e6359f"
-
-outputs:
-  runner_name:
-    value: ${{ steps.create_github_runner.outputs.AZURE_CONTAINER_APP_NAME }}
-    description: 'Azure Container App Name'
 
 runs:
   using: "composite"
   steps:
       - name: Login
         id: login
-        uses: azure/login@v1
+        # from https://github.com/Azure/login/commits/master
+        uses: azure/login@92a5484dfaf04ca78a94597f4f19fea633851fa2
         with:
           client-id: ${{ inputs.client_id }}
           tenant-id: ${{ inputs.tenant_id }}
           subscription-id: ${{ inputs.subscription_id }}
 
-      - name: Create GitHub Runner
-        id: create_github_runner
+      - name: Terraform plan
         shell: bash
         run: |
-          ### 0) Configure runner names and ids
-          TIMESTAMP=$(date +%s)
-          SELF_HOSTED_RUNNER_IMAGE="ghcr.io/pagopa/github-self-hosted-runner-azure:${{ inputs.self_hosted_runner_image_tag }}"
+          export PATH="${HOME}/bin:$PATH"
+          export ARM_CLIENT_ID=${{ inputs.client_id }}
+          export ARM_TENANT_ID=${{ inputs.tenant_id }}
+          export ARM_SUBSCRIPTION_ID=${{ inputs.subscription_id }}
+          export ARM_USE_OIDC=true
+          export ARM_USE_AZUREAD=true
+          export ARM_STORAGE_USE_AZUREAD=true
 
-          AZURE_RESOURCE_GROUP_NAME="${{ inputs.resource_group_name }}"
-          AZURE_CONTAINER_APP_ENVIRONMENT_NAME="${{ inputs.container_app_environment_name }}"
-          AZURE_CONTAINER_APP_NAME="runner-${{ github.run_id }}${TIMESTAMP}"
-          echo "[INFO] AZURE_CONTAINER_APP_NAME: ${AZURE_CONTAINER_APP_NAME}"
-          echo "::set-output name=AZURE_CONTAINER_APP_NAME::${AZURE_CONTAINER_APP_NAME}"
+          cd ${{ inputs.dir }}
 
-          ### 1) Register runner into current GitHub Repository
-          GITHUB_TOKEN=$(curl \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ inputs.pat_token }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/runners/registration-token | jq ".token" -r)
-
-          ### 2) Create container app linked to created runner
-          az config set extension.use_dynamic_install=yes_without_prompt
-
-          az containerapp create \
-            --name "${AZURE_CONTAINER_APP_NAME}" \
-            --resource-group "${AZURE_RESOURCE_GROUP_NAME}" \
-            --image "${SELF_HOSTED_RUNNER_IMAGE}" \
-            --min-replicas 1 \
-            --max-replicas 1 \
-            --environment "${AZURE_CONTAINER_APP_ENVIRONMENT_NAME}" \
-            --secrets github-token="${GITHUB_TOKEN}" \
-            --env-vars \
-            LABELS="${AZURE_CONTAINER_APP_NAME}" \
-            GITHUB_REPOSITORY="https://github.com/${{ github.repository }}" \
-            GITHUB_TOKEN=secretref:github-token
+          bash terraform.sh plan ${{ env.azure_environment }} -lock-timeout=3000s -out=tfplan -input=false
