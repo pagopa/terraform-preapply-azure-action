@@ -30,6 +30,13 @@ runs:
           tenant-id: ${{ inputs.tenant_id }}
           subscription-id: ${{ inputs.subscription_id }}
 
+      - name: Cache terraform modules
+        id: cache-terraform-modules
+        uses: actions/cache@6fd2d4538ca777f67fccddb233cf1a8ff1339012
+        with:
+          path: ${{ inputs.dir }}/.terraform
+          key: terraform-${{ inputs.dir }}
+
       - name: Terraform plan
         shell: bash
         run: |
