@@ -35,7 +35,9 @@ runs:
         uses: actions/cache@6fd2d4538ca777f67fccddb233cf1a8ff1339012
         with:
           path: ${{ inputs.dir }}/.terraform
-          key: terraform-${{ inputs.dir }}
+          key: terraform-${{ inputs.dir }}-${{ github.sha }}
+          restore-keys: |
+            terraform-${{ inputs.dir }}
 
       - name: Terraform plan
         shell: bash
